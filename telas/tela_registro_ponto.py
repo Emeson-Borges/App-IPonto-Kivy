@@ -12,8 +12,8 @@ import sqlite3
 import json
 from datetime import datetime
 
-DB_PATH = "faces.db"
-FACE_RECOG_TOLERANCE = 0.4  # Tolerância para reconhecimento facial
+DB_PATH = "banco_dados.db"
+FACE_RECOG_TOLERANCE = 0.4
 
 class TelaRegistroPonto(Screen):
     def __init__(self, **kwargs):
@@ -23,14 +23,22 @@ class TelaRegistroPonto(Screen):
         self.layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
 
         # Feed da câmera
-        self.camera_feed = Image(size_hint=(1, 0.8))
-        with self.camera_feed.canvas.before:
-            Color(1, 0, 0, 1)  # Cor vermelha
-            self.camera_border = Line(rectangle=(0, 0, 100, 100), width=3)
+        self.camera_feed = Image(size_hint=(1, 0.7))
         self.layout.add_widget(self.camera_feed)
 
+        # Nome do funcionário reconhecido
+        self.nome_label = Label(
+            text="",
+            font_size='20sp',
+            size_hint=(1, 0.1),
+            color=(0, 0, 0, 1),
+            halign="center",
+            valign="middle"
+        )
+        self.layout.add_widget(self.nome_label)
+
         # Botões
-        self.button_layout = BoxLayout(size_hint=(1, 0.2), spacing=10, padding=[20, 10, 20, 10])
+        self.button_layout = BoxLayout(size_hint=(1, 0.2), spacing=10)
 
         self.cancelar_button = Button(
             text="Cancelar",
@@ -42,10 +50,11 @@ class TelaRegistroPonto(Screen):
         self.button_layout.add_widget(self.cancelar_button)
 
         self.continuar_button = Button(
-            text="Continuar",
+            text="Registrar",
             size_hint=(0.5, 1),
             background_color=(0.2, 0.6, 0.8, 1),  # Azul
-            color=(1, 1, 1, 1)
+            color=(1, 1, 1, 1),
+            disabled=True
         )
         self.continuar_button.bind(on_press=self.registrar_ponto)
         self.button_layout.add_widget(self.continuar_button)
@@ -54,24 +63,22 @@ class TelaRegistroPonto(Screen):
 
         self.add_widget(self.layout)
 
-        # Variáveis para controle da câmera
+        # Variáveis de controle
         self.capture = None
         self.current_frame = None
+        self.recognized_name = None
 
     def on_enter(self):
-        """Abre a câmera ao entrar na tela."""
         self.capture = cv2.VideoCapture(0)
         Clock.schedule_interval(self.atualizar_camera, 1.0 / 30.0)
 
     def on_leave(self):
-        """Libera a câmera ao sair da tela."""
         if self.capture:
             self.capture.release()
         self.capture = None
         Clock.unschedule(self.atualizar_camera)
 
     def atualizar_camera(self, dt):
-        """Atualiza o feed da câmera."""
         ret, frame = self.capture.read()
         if not ret:
             return
@@ -84,72 +91,75 @@ class TelaRegistroPonto(Screen):
         texture.flip_vertical()
         self.camera_feed.texture = texture
 
-        # Atualizar borda da câmera
-        self.camera_border.rectangle = (self.camera_feed.x, self.camera_feed.y, self.camera_feed.width, self.camera_feed.height)
+        # Verificar reconhecimento facial
+        self.verificar_reconhecimento(frame_rgb)
 
-    def registrar_ponto(self, instance):
-        """Registra o ponto se o rosto for reconhecido."""
-        if self.current_frame is None:
-            return
-
-        frame_rgb = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+    def verificar_reconhecimento(self, frame_rgb):
         locs = face_recognition.face_locations(frame_rgb)
         encodings = face_recognition.face_encodings(frame_rgb, locs)
 
         if not encodings:
-            self.mostrar_feedback("Nenhum rosto detectado.")
+            self._atualizar_borda((1, 0, 0, 1))  # Vermelho se nenhum rosto
+            self.nome_label.text = "Nenhum rosto detectado."
+            self.continuar_button.disabled = True
             return
 
         encoding = encodings[0]
         nome = self.verificar_rosto(encoding)
 
         if nome:
-            self.salvar_log(nome)
-            self.mostrar_feedback(f"Ponto registrado para {nome}!", sucesso=True)
+            self._atualizar_borda((1, 0.5, 0, 1))  # Laranja se reconhecido
+            self.nome_label.text = f"Reconhecido: {nome}"
+            self.recognized_name = nome
+            self.continuar_button.disabled = False
         else:
-            self.mostrar_feedback("Rosto não reconhecido.")
+            self._atualizar_borda((1, 0, 0, 1))  # Vermelho se não reconhecido
+            self.nome_label.text = "Rosto não reconhecido."
+            self.recognized_name = None
+            self.continuar_button.disabled = True
+
+    def _atualizar_borda(self, color):
+        with self.camera_feed.canvas.after:
+            self.camera_feed.canvas.after.clear()
+            Color(*color)
+            Line(circle=(self.camera_feed.center_x, self.camera_feed.center_y, 150), width=2)
 
     def verificar_rosto(self, encoding):
-        """Verifica se o rosto é conhecido com base no banco de dados."""
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT name, encoding FROM face_encodings")
+        c.execute("SELECT matricula, encoding FROM dados_faciais")
         registros = c.fetchall()
         conn.close()
 
-        for nome, encoding_json in registros:
+        for matricula, encoding_json in registros:
             encoding_registrado = json.loads(encoding_json)
             distancia = face_recognition.face_distance([encoding_registrado], encoding)[0]
             if distancia < FACE_RECOG_TOLERANCE:
-                return nome
+                return matricula
 
         return None
 
-    def salvar_log(self, nome):
-        """Salva o log de ponto no banco de dados."""
+    def registrar_ponto(self, instance):
+        if not self.recognized_name:
+            return
+
         agora = datetime.now()
         horario = agora.strftime("%Y-%m-%d %H:%M:%S")
-
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM face_logs WHERE name = ? AND date(date_time) = date('now')", (nome,))
-        registros_hoje = c.fetchone()[0]
-        tipo = "Entrada" if registros_hoje % 2 == 0 else "Saída"
+        c.execute("SELECT nome FROM funcionarios WHERE matricula = ?", (self.recognized_name,))
+        nome = c.fetchone()[0]
 
-        c.execute("INSERT INTO face_logs (name, date_time, log_type) VALUES (?, ?, ?)", (nome, horario, tipo))
+        c.execute("""
+            INSERT INTO registros_ponto (nome, matricula, data_hora, tipo)
+            VALUES (?, ?, ?, ?)
+        """, (nome, self.recognized_name, horario, "Entrada"))
+
         conn.commit()
         conn.close()
 
-    def mostrar_feedback(self, mensagem, sucesso=False):
-        """Mostra feedback para o usuário."""
-        cor = (0, 1, 0, 1) if sucesso else (1, 0, 0, 1)  # Verde para sucesso, vermelho para erro
-        popup = Popup(
-            title="Registro de Ponto",
-            content=Label(text=mensagem, color=cor),
-            size_hint=(0.8, 0.4)
-        )
-        popup.open()
+        self.nome_label.text = f"Ponto registrado para {nome}!"
+        self.continuar_button.disabled = True
 
     def voltar_tela(self, instance):
-        """Volta para a tela inicial."""
         self.manager.current = 'tela_inicial'

@@ -6,10 +6,26 @@ from kivy.clock import Clock
 from kivy.uix.image import Image
 from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle
+from kivy.graphics import Color, RoundedRectangle
+from kivy.uix.button import Button
 import datetime
 
 # Configurar tamanho de janela para simular um app menor
 Window.size = (360, 640)  # Dimensões padrão para aplicativos móveis
+
+
+class BotaoArredondado(Button):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.background_color = (0, 0, 0, 0)  # Remove o fundo padrão
+        with self.canvas.before:
+            Color(0.1, 0.5, 0.8, 1)  # Define a cor de fundo (azul claro)
+            self.rect = RoundedRectangle(size=self.size, pos=self.pos, radius=[20])  # Define o raio do botão
+        self.bind(size=self.atualizar_canvas, pos=self.atualizar_canvas)
+
+    def atualizar_canvas(self, *args):
+        self.rect.size = self.size
+        self.rect.pos = self.pos
 
 class TelaInicial(Screen):
     def __init__(self, **kwargs):
@@ -71,9 +87,9 @@ class TelaInicial(Screen):
         self.layout.add_widget(info_layout)
 
         # Botão "Registrar Ponto"
-        self.botao_continuar = Button(
+        self.botao_continuar = BotaoArredondado(
             text="Registrar Ponto",
-            size_hint=(0.7, 0.1),
+            size_hint=(1, 0.1),
             pos_hint={"center_x": 0.5},
             font_size="16sp",
             background_color=(0.1, 0.5, 0.8, 1),  # Azul claro
@@ -85,9 +101,9 @@ class TelaInicial(Screen):
         self.layout.add_widget(self.botao_continuar)
 
         # Botão "Administrativo"
-        self.botao_administrativo = Button(
+        self.botao_administrativo = BotaoArredondado(
             text="Administrativo",
-            size_hint=(0.7, 0.1),
+            size_hint=(1, 0.1),
             pos_hint={"center_x": 0.5},
             font_size="16sp",
             background_color=(0.1, 0.5, 0.8, 1),  # Azul claro
@@ -127,5 +143,11 @@ class TelaInicial(Screen):
     def ir_para_registro_ponto(self, instancia):
         self.manager.current = 'tela_registro_ponto'
 
+    # def ir_para_administrativo(self, instancia):
+    #     self.manager.current = 'tela_administracao'
+
+
     def ir_para_administrativo(self, instancia):
-        self.manager.current = 'tela_administracao'
+        """Navega para a tela de login ao clicar em 'Administrativo'."""
+        self.manager.current = 'tela_login'
+
